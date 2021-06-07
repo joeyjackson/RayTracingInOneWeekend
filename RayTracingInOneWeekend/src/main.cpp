@@ -2,9 +2,6 @@
 #include <fstream>
 #include <string>
 
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "stb_image_write.h"
-
 #include "color.h"
 #include "ray.h"
 #include "util.h"
@@ -13,6 +10,7 @@
 #include "camera.h"
 #include "vec3.h"
 #include "material.h"
+#include "image.h"
 
 hittable_list random_scene() {
 	hittable_list world;
@@ -110,11 +108,10 @@ color ray_color(const ray& r, const hittable_list& world, int depth) {
 	return (1.0 - t) * color(1.0, 1.0, 1.0) + t * color(0.5, 0.7, 1.0);
 }
 
+
+
 enum file_type { PPM = 0, PNG };
 static const char* file_type_strings[] = { "PPM", "PNG" };
-
-enum flag_type { NONE = 0, FILE_PATH, FILE_TYPE };
-static const char* flag_msg_string[] = { "", "-o", "-t" };
 
 struct config {
 	std::string output_path;
@@ -124,12 +121,22 @@ struct config {
 		std::cerr << "Output Path: " << (output_path == "" ? "stdout" : output_path) << std::endl;
 		std::cerr << "Output Type: " << file_type_strings[output_type] << std::endl << std::endl;
 	}
+
+	bool validate() {
+		if (output_path == "" && output_type == PNG) {
+			std::cerr << "Must specify output file with PNG file type" << std::endl;
+			return false;
+		}
+		return true;
+	}
 };
 
 bool parseFlags(int argc, char** argv, config& conf) {
 	conf.output_path = ""; // default stdout
 	conf.output_type = PPM; // default PPM
 
+	enum flag_type { NONE = 0, FILE_PATH, FILE_TYPE };
+	static const char* flag_msg_string[] = { "", "-o", "-t" };
 	flag_type curr_flag = NONE;
 	// skip first arg (binary name)
 	for (int i = 1; i < argc; ++i)
@@ -141,11 +148,11 @@ bool parseFlags(int argc, char** argv, config& conf) {
 				std::cerr << "Missing flag value: " << flag_msg_string[curr_flag] << std::endl;
 				return false;
 			}
-			if (token == "-o" || token == "--out") {
+			if (token == "-o") {
 				curr_flag = FILE_PATH;
 				continue;
 			}
-			if (token == "-t" || token == "--type") {
+			if (token == "-t") {
 				curr_flag = FILE_TYPE;
 				continue;
 			}
@@ -189,17 +196,20 @@ int main(int argc, char** argv) {
 	if (!parseFlags(argc, argv, conf)) {
 		return 1;
 	}
+	if (!conf.validate()) {
+		return 1;
+	}
 	conf.print_config();
 
 	// Image
-	const auto aspect_ratio = 16.0 / 9.0;
-	const int image_width = 400;
+	const auto aspect_ratio = 3.0 / 2.0;
+	const int image_width = 1200;
 	const int image_height = static_cast<int>(image_width / aspect_ratio);
-	const int samples_per_pixel = 100;
+	const int samples_per_pixel = 500;
 	const int max_depth = 50;
 
 	// World
-	auto world = simple_scene();
+	auto world = random_scene();
 
 	// Camera
 	point3 lookfrom(13, 2, 3);
@@ -212,7 +222,7 @@ int main(int argc, char** argv) {
 
 	// Render
 	std::cerr << "Rendering..." << std::endl;
-	std::cout << "P3\n" << image_width << " " << image_height << "\n255\n";
+	image im(image_width, image_height);
 
 	for (int j = image_height - 1; j >= 0; j--) {
 		std::cerr << "\rScanlines remaining: " << j << " " << std::flush;
@@ -224,11 +234,29 @@ int main(int argc, char** argv) {
 				ray r = cam.get_ray(u, v);
 				pixel_color += ray_color(r, world, max_depth);
 			}
-			write_color(std::cout, pixel_color, samples_per_pixel);
+			write_color_to_image(im, pixel_color, samples_per_pixel);
 		}
 	}
-	std::cerr << "\nDone.\n";
+	std::cerr << "\nWriting..." << std::endl;
+	switch (conf.output_type)
+	{
+	case PPM:
+		if (conf.output_path == "") {
+			im.outPPM(std::cout);
+		} else {
+			std::ofstream fh;
+			fh.open(conf.output_path);
+			im.outPPM(fh);
+			fh.close();
+		}
+		break;
+	case PNG:
+		if (!im.outPNG(conf.output_path.c_str())) {
+			std::cerr << "Error writing PNG" << std::endl;
+			return 1;
+		}
+		break;
+	}
+	std::cerr << "Done." << std::endl;
 	return 0;
 }
-
-//int stbi_write_png(char const* filename, int w, int h, int comp, const void* data, int stride_in_bytes);
