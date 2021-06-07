@@ -1,0 +1,3 @@
+[submodule "RayTracingInOneWeekend/stb"]
+	path = RayTracingInOneWeekend/stb
+	url = https://github.com/nothings/stb.git
