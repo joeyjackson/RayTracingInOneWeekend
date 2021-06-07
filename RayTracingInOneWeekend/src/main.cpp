@@ -1,4 +1,9 @@
 #include <iostream>
+#include <fstream>
+#include <string>
+
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
 
 #include "color.h"
 #include "ray.h"
@@ -57,6 +62,23 @@ hittable_list random_scene() {
 	return world;
 }
 
+hittable_list simple_scene() {
+	hittable_list world;
+
+	auto ground = std::make_shared<lambertian>(color(0.8, 0.8, 0.0));
+	auto blue = std::make_shared<lambertian>(color(0.1, 0.2, 0.5));
+	auto glass = std::make_shared<dielectric>(1.5);
+	auto brass = std::make_shared<metal>(color(0.8, 0.6, 0.2), 0.0);
+
+	world.add(std::make_shared<sphere>(point3(0.0, -100.5, -1.0), 100.0, ground));
+	world.add(std::make_shared<sphere>(point3(0.0, 0.0, -1.0), 0.5, blue));
+	world.add(std::make_shared<sphere>(point3(4.0, 0.0, 1.0), 0.5, glass));
+	world.add(std::make_shared<sphere>(point3(4.0, 0.0, 1.0), -0.45, glass));
+	world.add(std::make_shared<sphere>(point3(3.0, 0.0, -1.0), 0.5, brass));
+
+	return world;
+}
+
 double hit_sphere(const point3& center, double radius, const ray& r) {
 	vec3 oc = r.origin() - center;
 	auto a = r.direction().length_squared();
@@ -88,16 +110,96 @@ color ray_color(const ray& r, const hittable_list& world, int depth) {
 	return (1.0 - t) * color(1.0, 1.0, 1.0) + t * color(0.5, 0.7, 1.0);
 }
 
-int main() {
+enum file_type { PPM = 0, PNG };
+static const char* file_type_strings[] = { "PPM", "PNG" };
+
+enum flag_type { NONE = 0, FILE_PATH, FILE_TYPE };
+static const char* flag_msg_string[] = { "", "-o", "-t" };
+
+struct config {
+	std::string output_path;
+	file_type output_type;
+
+	void print_config() {
+		std::cerr << "Output Path: " << (output_path == "" ? "stdout" : output_path) << std::endl;
+		std::cerr << "Output Type: " << file_type_strings[output_type] << std::endl << std::endl;
+	}
+};
+
+bool parseFlags(int argc, char** argv, config& conf) {
+	conf.output_path = ""; // default stdout
+	conf.output_type = PPM; // default PPM
+
+	flag_type curr_flag = NONE;
+	// skip first arg (binary name)
+	for (int i = 1; i < argc; ++i)
+	{
+		std::string token = argv[i];
+		if (token.empty()) continue;
+		if (token[0] == '-') {
+			if (curr_flag != NONE) {
+				std::cerr << "Missing flag value: " << flag_msg_string[curr_flag] << std::endl;
+				return false;
+			}
+			if (token == "-o" || token == "--out") {
+				curr_flag = FILE_PATH;
+				continue;
+			}
+			if (token == "-t" || token == "--type") {
+				curr_flag = FILE_TYPE;
+				continue;
+			}
+			std::cerr << "Invalid flag: " << token << std::endl;
+			return false;
+		} else {
+			switch (curr_flag)
+			{
+			case NONE:
+				std::cerr << "Did not specify flag for value: " << token << std::endl;
+				return false;
+			case FILE_PATH:
+				conf.output_path = token;
+				curr_flag = NONE;
+				break;
+			case FILE_TYPE:
+				if (token == "ppm") {
+					conf.output_type = PPM;
+				} else if (token == "png") {
+					conf.output_type = PNG;
+				} else {
+					std::cerr << "invalid file type: " << token << "\t (expected: ppm, png)" << std::endl;
+					return false;
+				}
+				curr_flag = NONE;
+				break;
+			default:
+				std::cerr << "" << std::endl;
+				return false;
+			}
+		}
+	}
+	if (curr_flag != NONE) {
+		std::cerr << "Missing flag value: " << flag_msg_string[curr_flag] << std::endl;
+		return false;
+	}
+}
+
+int main(int argc, char** argv) {
+	config conf;
+	if (!parseFlags(argc, argv, conf)) {
+		return 1;
+	}
+	conf.print_config();
+
 	// Image
-	const auto aspect_ratio = 3.0 / 2.0;
-	const int image_width = 1200;
+	const auto aspect_ratio = 16.0 / 9.0;
+	const int image_width = 400;
 	const int image_height = static_cast<int>(image_width / aspect_ratio);
-	const int samples_per_pixel = 500;
+	const int samples_per_pixel = 100;
 	const int max_depth = 50;
 
 	// World
-	auto world = random_scene();
+	auto world = simple_scene();
 
 	// Camera
 	point3 lookfrom(13, 2, 3);
@@ -109,6 +211,7 @@ int main() {
 	camera cam(lookfrom, lookat, vup, 20, aspect_ratio, aperture, dist_to_focus);
 
 	// Render
+	std::cerr << "Rendering..." << std::endl;
 	std::cout << "P3\n" << image_width << " " << image_height << "\n255\n";
 
 	for (int j = image_height - 1; j >= 0; j--) {
@@ -125,4 +228,7 @@ int main() {
 		}
 	}
 	std::cerr << "\nDone.\n";
+	return 0;
 }
+
+//int stbi_write_png(char const* filename, int w, int h, int comp, const void* data, int stride_in_bytes);
